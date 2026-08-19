@@ -1,141 +1,155 @@
 import os
 import sqlite3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-)
-
-# =========================
-# تنظیمات اصلی
-# =========================
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-# آیدی عددی ادمین
 ADMIN_ID = 440194278
-
 DB_NAME = "bot.db"
 
-
-# =========================
-# دیتابیس
-# =========================
 
 def db():
     return sqlite3.connect(DB_NAME)
 
 
 def init_db():
-
     conn = db()
     cur = conn.cursor()
 
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
+    CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY,
+        first_name TEXT,
+        username TEXT,
+        level INTEGER DEFAULT 1,
+        projects INTEGER DEFAULT 0,
+        balance INTEGER DEFAULT 0,
+        registered INTEGER DEFAULT 0
+    )
     """)
 
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            first_name TEXT,
-            username TEXT,
-            level INTEGER DEFAULT 1,
-            projects INTEGER DEFAULT 0,
-            job TEXT
-        )
+    CREATE TABLE IF NOT EXISTS jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE
+    )
     """)
 
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS voices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            job TEXT,
-            title TEXT,
-            file_id TEXT
-        )
+    CREATE TABLE IF NOT EXISTS user_jobs (
+        user_id INTEGER,
+        job_id INTEGER,
+        PRIMARY KEY(user_id, job_id)
+    )
     """)
 
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            photo_id TEXT,
-            status TEXT DEFAULT 'pending'
-        )
+    CREATE TABLE IF NOT EXISTS voices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id INTEGER,
+        title TEXT,
+        file_id TEXT
+    )
     """)
 
-    defaults = {
-        "learning": "🎓 شروع آموزش",
-        "level": "📊 سطح من",
-        "jobs": "💼 انتخاب شغل",
-        "audios": "🎧 آموزش‌های من",
-        "register": "💳 ثبت‌نام",
-        "about": "ℹ️ درباره دوره",
-        "card": "شماره کارت هنوز تنظیم نشده",
-        "price": "۲۹۸,۰۰۰ تومان",
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        photo_id TEXT,
+        amount INTEGER,
+        status TEXT DEFAULT 'pending'
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )
+    """)
+
+    settings = {
+        "welcome":
+        "سلام کاربر گرامی 🌹\n\n"
+        "به ربات درآمدزایی ما خوش آمدید 💰\n\n"
+        "اینجا می‌توانید مسیر شغلی مورد علاقه‌تان را انتخاب کنید "
+        "و آموزش‌های مربوط به آن را دریافت کنید.",
+
+        "start_button": "🚀 شروع درآمدزایی",
+
+        "start_text":
+        "شما می‌توانید با روزی چند ساعت زمان گذاشتن، "
+        "مسیر درآمدزایی خودتان را شروع کنید. 💰\n\n"
+        "برای شروع روی دکمه زیر کلیک کنید 👇",
+
+        "job_text":
+        "💼 شغل مورد نظر خودتان را انتخاب کنید.\n\n"
+        "توضیحات و ویس‌های مربوط به شغل انتخابی برای شما ارسال می‌شود.\n\n"
+        "حداکثر ۴ شغل می‌توانید انتخاب کنید.",
+
+        "price": "298000",
+
+        "card": "شماره کارت را از پنل مدیریت وارد کنید.",
+
+        "about":
+        "ℹ️ توضیحات\n\n"
+        "هدف ما آموزش مهارت‌های کاربردی و ایجاد مسیر "
+        "برای شروع فعالیت پروژه‌ای است."
     }
 
-    for key, value in defaults.items():
+    for key, value in settings.items():
         cur.execute(
-            "INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)",
+            "INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)",
             (key, value)
+        )
+
+    jobs = [
+        "💻 برنامه‌نویسی",
+        "🎨 طراحی گرافیک",
+        "📱 تولید محتوا",
+        "🎬 تدوین ویدئو",
+        "📈 دیجیتال مارکتینگ",
+        "🎙️ گویندگی"
+    ]
+
+    for job in jobs:
+        cur.execute(
+            "INSERT OR IGNORE INTO jobs(name) VALUES(?)",
+            (job,)
         )
 
     conn.commit()
     conn.close()
 
 
-def get_setting(key):
-
+def setting(key):
     conn = db()
     cur = conn.cursor()
-
-    cur.execute(
-        "SELECT value FROM settings WHERE key=?",
-        (key,)
-    )
-
+    cur.execute("SELECT value FROM settings WHERE key=?", (key,))
     row = cur.fetchone()
-
     conn.close()
-
     return row[0] if row else ""
 
 
 def set_setting(key, value):
-
     conn = db()
     cur = conn.cursor()
-
-    cur.execute("""
-        INSERT OR REPLACE INTO settings (key,value)
-        VALUES (?,?)
-    """, (key, value))
-
+    cur.execute(
+        "INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)",
+        (key, value)
+    )
     conn.commit()
     conn.close()
 
 
-# =========================
-# ثبت کاربر
-# =========================
-
 def save_user(user):
-
     conn = db()
     cur = conn.cursor()
 
     cur.execute("""
-        INSERT OR IGNORE INTO users
-        (user_id, first_name, username)
-        VALUES (?, ?, ?)
+    INSERT OR IGNORE INTO users(user_id,first_name,username)
+    VALUES(?,?,?)
     """, (
         user.id,
         user.first_name or "",
@@ -146,765 +160,292 @@ def save_user(user):
     conn.close()
 
 
-# =========================
-# منوی اصلی
-# =========================
-
 def main_menu():
-
-    keyboard = [
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            setting("start_button"),
+            callback_data="start_income"
+        )],
         [
-            InlineKeyboardButton(
-                get_setting("learning"),
-                callback_data="learning"
-            ),
-            InlineKeyboardButton(
-                get_setting("level"),
-                callback_data="level"
-            ),
+            InlineKeyboardButton("⭐ سطح من", callback_data="level"),
+            InlineKeyboardButton("💰 موجودی", callback_data="balance")
         ],
         [
-            InlineKeyboardButton(
-                get_setting("jobs"),
-                callback_data="jobs"
-            ),
-            InlineKeyboardButton(
-                get_setting("audios"),
-                callback_data="audios"
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                get_setting("register"),
-                callback_data="register"
-            ),
-            InlineKeyboardButton(
-                get_setting("about"),
-                callback_data="about"
-            ),
-        ],
-    ]
+            InlineKeyboardButton("💼 شغل‌ها", callback_data="jobs"),
+            InlineKeyboardButton("ℹ️ توضیحات", callback_data="about")
+        ]
+    ])
 
-    return InlineKeyboardMarkup(keyboard)
-
-
-# =========================
-# شروع ربات
-# =========================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     save_user(update.effective_user)
 
-    text = """
-🌟 سلام و خوش اومدی!
-
-به ربات آموزشی ما خوش اومدی 💎
-
-اینجا قراره قدم‌به‌قدم مهارت یاد بگیری،
-پروژه انجام بدی و مسیر شغلی خودت رو پیدا کنی 🚀
-
-از منوی زیر شروع کن 👇
-"""
-
     await update.message.reply_text(
-        text,
+        setting("welcome"),
         reply_markup=main_menu()
     )
 
 
-# =========================
-# پنل ادمین
-# =========================
+def jobs_keyboard(user_id):
+    conn = db()
+    cur = conn.cursor()
 
-def admin_menu():
+    cur.execute("SELECT id,name FROM jobs ORDER BY id")
+    jobs = cur.fetchall()
 
-    keyboard = [
-        [
+    cur.execute(
+        "SELECT job_id FROM user_jobs WHERE user_id=?",
+        (user_id,)
+    )
+    selected = [x[0] for x in cur.fetchall()]
+
+    conn.close()
+
+    keyboard = []
+
+    for job_id, name in jobs:
+        mark = "✅ " if job_id in selected else ""
+        keyboard.append([
             InlineKeyboardButton(
-                "🎛️ تغییر منو",
-                callback_data="admin_menu_edit"
+                mark + name,
+                callback_data=f"job_{job_id}"
             )
-        ],
-        [
-            InlineKeyboardButton(
-                "💳 تغییر شماره کارت",
-                callback_data="admin_card"
-            ),
-            InlineKeyboardButton(
-                "💰 تغییر قیمت",
-                callback_data="admin_price"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🎙️ افزودن ویس",
-                callback_data="admin_voice"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🧾 فیش‌های پرداخت",
-                callback_data="admin_payments"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "👥 کاربران",
-                callback_data="admin_users"
-            )
-        ],
-    ]
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton(
+            "🎧 گوش کردم",
+            callback_data="heard"
+        )
+    ])
+
+    keyboard.append([
+        InlineKeyboardButton(
+            "🔙 برگشت",
+            callback_data="start_income"
+        )
+    ])
 
     return InlineKeyboardMarkup(keyboard)
 
 
-async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if update.effective_user.id != ADMIN_ID:
-
-        await update.message.reply_text(
-            "⛔ شما دسترسی مدیریت ندارید."
-        )
-
-        return
-
-    await update.message.reply_text(
-        "⚙️ پنل مدیریت\n\n"
-        "از اینجا می‌تونی تنظیمات ربات رو کنترل کنی:",
-        reply_markup=admin_menu()
+async def show_jobs(query):
+    await query.edit_message_text(
+        setting("job_text"),
+        reply_markup=jobs_keyboard(query.from_user.id)
     )
 
 
-# =========================
-# تغییر نام منو
-# =========================
+async def select_job(query, context):
+    user_id = query.from_user.id
+    job_id = int(query.data.split("_")[1])
 
-def menu_edit():
+    conn = db()
+    cur = conn.cursor()
 
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "🎓 شروع آموزش",
-                callback_data="edit_learning"
+    cur.execute(
+        "SELECT job_id FROM user_jobs WHERE user_id=?",
+        (user_id,)
+    )
+
+    selected = [x[0] for x in cur.fetchall()]
+
+    if job_id in selected:
+        cur.execute(
+            "DELETE FROM user_jobs WHERE user_id=? AND job_id=?",
+            (user_id, job_id)
+        )
+    else:
+        if len(selected) >= 4:
+            conn.close()
+            await query.answer(
+                "⚠️ حداکثر ۴ شغل می‌توانید انتخاب کنید.",
+                show_alert=True
             )
-        ],
-        [
-            InlineKeyboardButton(
-                "📊 سطح من",
-                callback_data="edit_level"
+            return
+
+        cur.execute(
+            "INSERT INTO user_jobs(user_id,job_id) VALUES(?,?)",
+            (user_id, job_id)
+        )
+
+        cur.execute(
+            "SELECT name FROM jobs WHERE id=?",
+            (job_id,)
+        )
+        job = cur.fetchone()
+
+        conn.commit()
+
+        if job:
+            cur.execute(
+                "SELECT title,file_id FROM voices WHERE job_id=?",
+                (job_id,)
             )
-        ],
-        [
-            InlineKeyboardButton(
-                "💼 انتخاب شغل",
-                callback_data="edit_jobs"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🎧 آموزش‌های من",
-                callback_data="edit_audios"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "💳 ثبت‌نام",
-                callback_data="edit_register"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "ℹ️ درباره دوره",
-                callback_data="edit_about"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🔙 برگشت",
-                callback_data="admin_home"
-            )
-        ],
-    ]
+            voices = cur.fetchall()
 
-    return InlineKeyboardMarkup(keyboard)
+            for title, file_id in voices:
+                await context.bot.send_voice(
+                    user_id,
+                    file_id,
+                    caption=f"🎧 {title}"
+                )
+
+    conn.commit()
+    conn.close()
+
+    await query.edit_message_reply_markup(
+        reply_markup=jobs_keyboard(user_id)
+    )
 
 
-# =========================
-# مدیریت دکمه‌ها
-# =========================
-
-EDIT_BUTTONS = {
-    "edit_learning": "learning",
-    "edit_level": "level",
-    "edit_jobs": "jobs",
-    "edit_audios": "audios",
-    "edit_register": "register",
-    "edit_about": "about",
-}
-
-
-# =========================
-# دکمه‌ها
-# =========================
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id
+    data = query.data
 
-    # =========================
-    # امنیت ادمین
-    # =========================
-
-    if query.data.startswith("admin") or query.data.startswith("edit_"):
-
-        if user_id != ADMIN_ID:
-
-            await query.answer(
-                "⛔ دسترسی ندارید.",
-                show_alert=True
-            )
-
-            return
-
-    # =========================
-    # پنل اصلی
-    # =========================
-
-    if query.data == "admin_home":
-
+    if data == "start_income":
         await query.edit_message_text(
-            "⚙️ پنل مدیریت",
-            reply_markup=admin_menu()
+            setting("start_text"),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    "🚀 شروع",
+                    callback_data="choose_jobs"
+                )],
+                [InlineKeyboardButton(
+                    "🔙 برگشت",
+                    callback_data="home"
+                )]
+            ])
         )
 
-        return
+    elif data == "choose_jobs":
+        await show_jobs(query)
 
-    # =========================
-    # ویرایش منو
-    # =========================
+    elif data == "jobs":
+        await show_jobs(query)
 
-    if query.data == "admin_menu_edit":
+    elif data.startswith("job_"):
+        await select_job(query, context)
 
+    elif data == "heard":
         await query.edit_message_text(
-            "🎛️ کدام دکمه را می‌خواهی تغییر بدهی؟",
-            reply_markup=menu_edit()
+            "🎧 گوش کردم.\n\n"
+            "حالا شغل‌هایی که مدنظرتان است را انتخاب کنید.\n"
+            "حداکثر ۴ شغل.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    "💳 ادامه ثبت‌نام",
+                    callback_data="register"
+                )],
+                [InlineKeyboardButton(
+                    "🔙 برگشت",
+                    callback_data="choose_jobs"
+                )]
+            ])
         )
 
-        return
-
-    # =========================
-    # انتخاب دکمه برای تغییر
-    # =========================
-
-    if query.data in EDIT_BUTTONS:
-
-        key = EDIT_BUTTONS[query.data]
-
-        context.user_data["editing"] = key
+    elif data == "register":
+        price = int(setting("price"))
 
         await query.edit_message_text(
-            "✏️ اسم جدید این دکمه را همینجا برای من بفرست."
+            f"💳 مراحل ثبت‌نام\n\n"
+            f"برای ثبت‌نام کافی است مبلغ {price:,} تومان پرداخت کنید.\n\n"
+            "این مبلغ در موجودی ربات شما ثبت می‌شود و "
+            "طبق شرایط سیستم پس از انجام اولین پروژه "
+            "امکان برداشت آن فراهم خواهد شد.\n\n"
+            f"💳 شماره کارت:\n{setting('card')}\n\n"
+            "بعد از پرداخت، تصویر فیش واریزی را ارسال کنید.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    "📸 ارسال فیش",
+                    callback_data="receipt"
+                )],
+                [InlineKeyboardButton(
+                    "🔙 برگشت",
+                    callback_data="choose_jobs"
+                )]
+            ])
         )
 
-        return
-
-    # =========================
-    # تغییر کارت
-    # =========================
-
-    if query.data == "admin_card":
-
-        context.user_data["editing"] = "card"
+    elif data == "receipt":
+        context.user_data["receipt"] = True
 
         await query.edit_message_text(
-            "💳 شماره کارت جدید را بفرست."
+            "📸 لطفاً تصویر فیش واریزی را ارسال کنید."
         )
 
-        return
-
-    # =========================
-    # تغییر قیمت
-    # =========================
-
-    if query.data == "admin_price":
-
-        context.user_data["editing"] = "price"
-
-        await query.edit_message_text(
-            "💰 مبلغ جدید را بفرست.\n\n"
-            "مثال:\n"
-            "۳۵۰,۰۰۰ تومان"
-        )
-
-        return
-
-    # =========================
-    # افزودن ویس
-    # =========================
-
-    if query.data == "admin_voice":
-
-        context.user_data["adding_voice"] = True
-
-        await query.edit_message_text(
-            "🎙️ برای اضافه کردن ویس:\n\n"
-            "اول نام شغل را بفرست.\n"
-            "مثلاً:\n"
-            "برنامه نویسی"
-        )
-
-        return
-
-    # =========================
-    # فیش‌ها
-    # =========================
-
-    if query.data == "admin_payments":
-
+    elif data == "level":
         conn = db()
         cur = conn.cursor()
-
-        cur.execute("""
-            SELECT id, user_id
-            FROM payments
-            WHERE status='pending'
-            ORDER BY id DESC
-        """)
-
-        payments = cur.fetchall()
-
-        conn.close()
-
-        if not payments:
-
-            await query.edit_message_text(
-                "🧾 فیش پرداختی در انتظار تأیید نداریم.",
-                reply_markup=admin_menu()
-            )
-
-            return
-
-        text = "🧾 فیش‌های در انتظار تأیید:\n\n"
-
-        for payment_id, uid in payments:
-
-            text += f"🧾 فیش #{payment_id}\n"
-            text += f"👤 کاربر: {uid}\n\n"
-
-        await query.edit_message_text(
-            text,
-            reply_markup=admin_menu()
+        cur.execute(
+            "SELECT level,projects FROM users WHERE user_id=?",
+            (query.from_user.id,)
         )
-
-        return
-
-    # =========================
-    # کاربران
-    # =========================
-
-    if query.data == "admin_users":
-
-        conn = db()
-        cur = conn.cursor()
-
-        cur.execute("SELECT COUNT(*) FROM users")
-
-        count = cur.fetchone()[0]
-
-        conn.close()
-
-        await query.edit_message_text(
-            f"👥 تعداد کاربران: {count}",
-            reply_markup=admin_menu()
-        )
-
-        return
-
-    # =========================
-    # بخش‌های کاربر
-    # =========================
-
-    if query.data == "learning":
-
-        text = """
-🎓 شروع آموزش
-
-مسیر آموزشی شما از اینجا شروع می‌شود.
-
-🚀 پروژه‌ها و آموزش‌ها به‌زودی فعال می‌شوند.
-"""
-
-    elif query.data == "level":
-
-        conn = db()
-        cur = conn.cursor()
-
-        cur.execute("""
-            SELECT level, projects
-            FROM users
-            WHERE user_id=?
-        """, (user_id,))
-
         row = cur.fetchone()
-
         conn.close()
 
         level = row[0] if row else 1
         projects = row[1] if row else 0
 
-        text = f"""
-📊 سطح شما
-
-⭐ سطح: {level}
-
-📁 پروژه‌های انجام‌شده:
-{projects} / 5
-
-🎯 با انجام ۵ پروژه وارد سطح بعد می‌شوی.
-"""
-
-    elif query.data == "jobs":
-
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    "💻 برنامه‌نویسی",
-                    callback_data="job_programming"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "🎨 طراحی",
-                    callback_data="job_design"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "📱 تولید محتوا",
-                    callback_data="job_content"
-                )
-            ],
-            [
-                InlineKeyboardButton(
+        await query.edit_message_text(
+            f"⭐ سطح شما: {level}\n\n"
+            f"📁 پروژه‌های انجام‌شده: {projects}\n\n"
+            "🎯 با انجام هر ۵ پروژه وارد سطح بعدی می‌شوید.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(
                     "🔙 برگشت",
                     callback_data="home"
-                )
-            ]
-        ]
-
-        await query.edit_message_text(
-            "💼 شغل مورد علاقه‌ات را انتخاب کن:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+                )]
+            ])
         )
 
-        return
-
-    elif query.data.startswith("job_"):
-
-        jobs = {
-            "job_programming": "برنامه نویسی",
-            "job_design": "طراحی",
-            "job_content": "تولید محتوا",
-        }
-
-        job = jobs.get(query.data)
-
+    elif data == "balance":
         conn = db()
         cur = conn.cursor()
-
-        cur.execute("""
-            UPDATE users
-            SET job=?
-            WHERE user_id=?
-        """, (job, user_id))
-
-        cur.execute("""
-            SELECT title, file_id
-            FROM voices
-            WHERE job=?
-        """, (job,))
-
-        voices = cur.fetchall()
-
-        conn.commit()
+        cur.execute(
+            "SELECT balance FROM users WHERE user_id=?",
+            (query.from_user.id,)
+        )
+        row = cur.fetchone()
         conn.close()
 
+        balance = row[0] if row else 0
+
         await query.edit_message_text(
-            f"✅ مسیر «{job}» انتخاب شد."
+            f"💰 موجودی شما:\n\n{balance:,} تومان",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    "🔙 برگشت",
+                    callback_data="home"
+                )]
+            ])
         )
 
-        if voices:
-
-            for title, file_id in voices:
-
-                await context.bot.send_voice(
-                    chat_id=user_id,
-                    voice=file_id,
-                    caption=f"🎙️ {title}"
-                )
-
-        else:
-
-            await context.bot.send_message(
-                chat_id=user_id,
-                text="🎙️ هنوز ویسی برای این مسیر اضافه نشده."
-            )
-
-        return
-
-    elif query.data == "audios":
-
-        conn = db()
-        cur = conn.cursor()
-
-        cur.execute("""
-            SELECT job
-            FROM users
-            WHERE user_id=?
-        """, (user_id,))
-
-        row = cur.fetchone()
-
-        if not row or not row[0]:
-
-            conn.close()
-
-            text = "🎙️ اول باید یک شغل انتخاب کنی."
-
-        else:
-
-            job = row[0]
-
-            cur.execute("""
-                SELECT title, file_id
-                FROM voices
-                WHERE job=?
-            """, (job,))
-
-            voices = cur.fetchall()
-
-            conn.close()
-
-            if not voices:
-
-                text = "🎙️ هنوز آموزشی برای این شغل قرار نگرفته."
-
-            else:
-
-                text = f"🎙️ آموزش‌های مسیر «{job}»:\n\n"
-
-                for title, _ in voices:
-                    text += f"🎧 {title}\n"
-
-    elif query.data == "register":
-
-        text = f"""
-💳 ثبت‌نام اولیه
-
-💰 مبلغ:
-{get_setting("price")}
-
-💳 شماره کارت:
-{get_setting("card")}
-
-بعد از پرداخت، عکس فیش را همینجا ارسال کن.
-
-🧾 فیش برای مدیریت ارسال می‌شود و پس از تأیید، ثبت‌نامت فعال خواهد شد.
-"""
-
-    elif query.data == "about":
-
-        text = """
-ℹ️ درباره دوره
-
-🚀 آموزش مرحله‌به‌مرحله
-🎯 پروژه‌های عملی
-📊 سیستم سطح‌بندی
-💼 انتخاب مسیر شغلی
-🎙️ آموزش‌های صوتی
-🏆 پیشرفت مرحله‌ای
-"""
-
-    elif query.data == "home":
-
+    elif data == "about":
         await query.edit_message_text(
-            "🌟 منوی اصلی",
+            setting("about"),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    "🔙 برگشت",
+                    callback_data="home"
+                )]
+            ])
+        )
+
+    elif data == "home":
+        await query.edit_message_text(
+            "🏠 منوی اصلی",
             reply_markup=main_menu()
         )
 
-        return
 
-    else:
-        return
-
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "🔙 برگشت به منو",
-                callback_data="home"
-            )
-        ]
-    ]
-
-    await query.edit_message_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-
-# =========================
-# دریافت پیام ادمین
-# =========================
-
-async def admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if update.effective_user.id != ADMIN_ID:
-        return
-
-    editing = context.user_data.get("editing")
-
-    if editing:
-
-        value = update.message.text.strip()
-
-        if editing in [
-            "learning",
-            "level",
-            "jobs",
-            "audios",
-            "register",
-            "about"
-        ]:
-
-            set_setting(editing, value)
-
-        elif editing == "card":
-
-            set_setting("card", value)
-
-        elif editing == "price":
-
-            set_setting("price", value)
-
-        context.user_data["editing"] = None
-
-        await update.message.reply_text(
-            "✅ با موفقیت ذخیره شد.",
-            reply_markup=admin_menu()
-        )
-
-        return
-
-    # =========================
-    # افزودن ویس
-    # =========================
-
-    if context.user_data.get("adding_voice"):
-
-        context.user_data["voice_job"] = update.message.text.strip()
-        context.user_data["adding_voice"] = False
-        context.user_data["waiting_voice"] = True
-
-        await update.message.reply_text(
-            "🎙️ حالا خود ویس را همینجا ارسال کن."
-        )
-
-        return
-
-    # =========================
-    # عنوان ویس
-    # =========================
-
-    if context.user_data.get("waiting_voice_title"):
-
-        title = update.message.text.strip()
-
-        context.user_data["voice_title"] = title
-        context.user_data["waiting_voice_title"] = False
-
-        await update.message.reply_text(
-            "✅ عنوان ذخیره شد."
-        )
-
-        return
-
-
-# =========================
-# دریافت ویس از ادمین
-# =========================
-
-async def receive_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if update.effective_user.id != ADMIN_ID:
-        return
-
-    if not context.user_data.get("waiting_voice"):
-        return
-
-    voice = update.message.voice
-
-    job = context.user_data.get("voice_job")
-
-    context.user_data["voice_file_id"] = voice.file_id
-    context.user_data["waiting_voice"] = False
-    context.user_data["waiting_voice_title"] = True
-
-    await update.message.reply_text(
-        f"🎙️ ویس برای شغل «{job}» دریافت شد.\n\n"
-        "حالا عنوان ویس را بفرست.\n"
-        "مثلاً:\n"
-        "جلسه اول آشنایی با مسیر"
-    )
-
-
-# =========================
-# ذخیره ویس
-# =========================
-
-async def save_voice_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if update.effective_user.id != ADMIN_ID:
-        return
-
-    if not context.user_data.get("waiting_voice_title"):
-        return
-
-    title = update.message.text.strip()
-
-    job = context.user_data.get("voice_job")
-    file_id = context.user_data.get("voice_file_id")
-
-    conn = db()
-    cur = conn.cursor()
-
-    cur.execute("""
-        INSERT INTO voices
-        (job, title, file_id)
-        VALUES (?, ?, ?)
-    """, (job, title, file_id))
-
-    conn.commit()
-    conn.close()
-
-    context.user_data.clear()
-
-    await update.message.reply_text(
-        "✅ ویس با موفقیت اضافه شد.",
-        reply_markup=admin_menu()
-    )
-
-
-# =========================
-# دریافت فیش پرداخت
-# =========================
-
-async def receive_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
+async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id == ADMIN_ID:
+        return
+
+    if not context.user_data.get("receipt"):
         return
 
     if not update.message.photo:
@@ -912,16 +453,18 @@ async def receive_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     photo = update.message.photo[-1]
 
+    price = int(setting("price"))
+
     conn = db()
     cur = conn.cursor()
 
     cur.execute("""
-        INSERT INTO payments
-        (user_id, photo_id, status)
-        VALUES (?, ?, 'pending')
+    INSERT INTO payments(user_id,photo_id,amount,status)
+    VALUES(?,?,?,'pending')
     """, (
         update.effective_user.id,
-        photo.file_id
+        photo.file_id,
+        price
     ))
 
     payment_id = cur.lastrowid
@@ -929,170 +472,195 @@ async def receive_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     conn.close()
 
-    # ارسال فیش برای ادمین
-
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "✅ تأیید",
-                callback_data=f"approve_{payment_id}"
-            ),
-            InlineKeyboardButton(
-                "❌ رد",
-                callback_data=f"reject_{payment_id}"
-            )
-        ]
-    ]
+    context.user_data["receipt"] = False
 
     await context.bot.send_photo(
-        chat_id=ADMIN_ID,
-        photo=photo.file_id,
+        ADMIN_ID,
+        photo.file_id,
         caption=(
-            f"🧾 فیش پرداخت جدید\n\n"
-            f"شماره فیش: #{payment_id}\n"
+            "🧾 فیش جدید\n\n"
             f"👤 کاربر: {update.effective_user.id}\n"
-            f"💰 مبلغ: {get_setting('price')}"
+            f"💰 مبلغ: {price:,} تومان\n"
+            f"🆔 فیش: {payment_id}"
         ),
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "✅ تأیید",
+                    callback_data=f"approve_{payment_id}"
+                ),
+                InlineKeyboardButton(
+                    "❌ رد",
+                    callback_data=f"reject_{payment_id}"
+                )
+            ]
+        ])
     )
 
     await update.message.reply_text(
         "✅ فیش شما دریافت شد.\n\n"
-        "بعد از بررسی مدیریت، نتیجه به شما اعلام می‌شود."
+        "پس از بررسی مدیریت، نتیجه برای شما ارسال می‌شود."
     )
 
 
-# =========================
-# تأیید / رد فیش
-# =========================
-
-async def payment_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    query = update.callback_query
-    await query.answer()
-
+async def payment_action(query, context):
     if query.from_user.id != ADMIN_ID:
         return
 
     action, payment_id = query.data.split("_")
-
     payment_id = int(payment_id)
 
     conn = db()
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT user_id
-        FROM payments
-        WHERE id=?
-    """, (payment_id,))
-
+    cur.execute(
+        "SELECT user_id,amount FROM payments WHERE id=?",
+        (payment_id,)
+    )
     row = cur.fetchone()
 
     if not row:
-
         conn.close()
         return
 
-    user_id = row[0]
+    user_id, amount = row
 
     if action == "approve":
+        cur.execute(
+            "UPDATE payments SET status='approved' WHERE id=?",
+            (payment_id,)
+        )
 
-        cur.execute("""
-            UPDATE payments
-            SET status='approved'
-            WHERE id=?
-        """, (payment_id,))
+        cur.execute(
+            """
+            UPDATE users
+            SET balance=balance+?, registered=1
+            WHERE user_id=?
+            """,
+            (amount, user_id)
+        )
 
-        message = "✅ پرداخت شما تأیید شد."
+        message = (
+            "✅ پرداخت شما تأیید شد.\n\n"
+            f"💰 مبلغ {amount:,} تومان به موجودی شما اضافه شد."
+        )
 
     else:
+        cur.execute(
+            "UPDATE payments SET status='rejected' WHERE id=?",
+            (payment_id,)
+        )
 
-        cur.execute("""
-            UPDATE payments
-            SET status='rejected'
-            WHERE id=?
-        """, (payment_id,))
-
-        message = "❌ فیش پرداخت شما تأیید نشد."
+        message = (
+            "❌ فیش پرداخت شما تأیید نشد.\n\n"
+            "لطفاً اطلاعات پرداخت را بررسی و دوباره ارسال کنید."
+        )
 
     conn.commit()
     conn.close()
 
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=message
+    await context.bot.send_message(user_id, message)
+
+
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("⛔ دسترسی ندارید.")
+        return
+
+    await update.message.reply_text(
+        "⚙️ پنل مدیریت\n\n"
+        "فعلاً مدیریت شغل‌ها و پرداخت‌ها از این بخش انجام می‌شود.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton(
+                "💳 شماره کارت فعلی",
+                callback_data="admin_card"
+            )],
+            [InlineKeyboardButton(
+                "💰 مبلغ فعلی",
+                callback_data="admin_price"
+            )]
+        ])
     )
 
-    await query.edit_message_caption(
-        caption=f"🧾 فیش #{payment_id}\n\nوضعیت: {message}"
-    )
+
+async def admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    if context.user_data.get("admin_card"):
+        set_setting("card", update.message.text)
+        context.user_data["admin_card"] = False
+        await update.message.reply_text("✅ شماره کارت ذخیره شد.")
+
+    elif context.user_data.get("admin_price"):
+        try:
+            price = update.message.text.replace(",", "").replace("٬", "")
+            int(price)
+            set_setting("price", price)
+            context.user_data["admin_price"] = False
+            await update.message.reply_text("✅ مبلغ ذخیره شد.")
+        except:
+            await update.message.reply_text("❌ مبلغ را به صورت عدد وارد کنید.")
 
 
-# =========================
-# اجرای ربات
-# =========================
+async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+
+    if query.from_user.id != ADMIN_ID:
+        return
+
+    await query.answer()
+
+    if query.data == "admin_card":
+        context.user_data["admin_card"] = True
+        await query.edit_message_text(
+            "💳 شماره کارت جدید را ارسال کنید."
+        )
+
+    elif query.data == "admin_price":
+        context.user_data["admin_price"] = True
+        await query.edit_message_text(
+            "💰 مبلغ جدید را ارسال کنید.\nمثلاً: 298000"
+        )
+
+    elif query.data.startswith("approve_") or query.data.startswith("reject_"):
+        await payment_action(query, context)
+
 
 def main():
-
     init_db()
-
-    if not BOT_TOKEN:
-
-        print("BOT_TOKEN تنظیم نشده.")
-        return
 
     app = Application.builder().token(BOT_TOKEN).build()
 
-    app.add_handler(
-        CommandHandler("start", start)
-    )
-
-    app.add_handler(
-        CommandHandler("admin", admin)
-    )
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin))
 
     app.add_handler(
         CallbackQueryHandler(
-            payment_action,
-            pattern=r"^(approve|reject)_\d+$"
+            admin_callback,
+            pattern="^(admin_card|admin_price|approve_|reject_)"
         )
     )
 
     app.add_handler(
-        CallbackQueryHandler(button_handler)
-    )
-
-    app.add_handler(
-        MessageHandler(
-            filters.VOICE,
-            receive_voice
-        )
+        CallbackQueryHandler(button)
     )
 
     app.add_handler(
         MessageHandler(
             filters.PHOTO,
-            receive_payment
+            receive_receipt
         )
     )
 
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
-            save_voice_title
-        )
-    )
-
-    app.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            admin_text
+            admin_buttons
         )
     )
 
     print("Bot is running...")
-
     app.run_polling()
 
 
